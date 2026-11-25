@@ -27,7 +27,7 @@ grpo:
   num_generations: 8             # group size: 8 answers per question
   temperature: 1.0               # sampling diversity during training
   max_completion_length: 4096    # Qwen3-0.6B thinking averaged ~1.1k tokens, 5% went past 8k
-  mask_truncated_completions: true   # cut-off answers are left out of the loss
+  mask_truncated_completions: false  # cut-off answers count as wrong (reward 0): stops length creep (pilot: cut-offs 3% -> 11% when masked)
   max_steps: 200                 # 200 steps x 16 questions = 3,200 questions (~half of train)
   # --- batch: 8 completions x 16 accumulation = 128 completions = 16 questions per step
   #     (small per-device batch because 4k-token answers make big activations)

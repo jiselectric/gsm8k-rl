@@ -2,7 +2,7 @@
 
 All evaluation results for this project in one place: what we measured, how, what we found, and what it means for training.
 
-*Last updated: 2026-11-25. Two runs are still in progress (see [Status](#status)).*
+*Last updated: 2026-11-25. GRPO training is in progress (see [Status](#status)).*
 
 ---
 
@@ -13,7 +13,7 @@ All evaluation results for this project in one place: what we measured, how, wha
 - **Solved examples in the prompt (few-shot) made every model worse.** The models copied the short example style and reasoned less.
 - **Thinking mode helps small Qwen models a lot** (+17 to +19 points), but costs 5–10x more tokens.
 - **Small models fail on long problems.** The gap between a 0.6B and a 3B model is small on 2-step problems and large on 5+ step problems.
-- **Qwen3-1.7B is the training base.** Without thinking it already scores 84.0. With thinking, it solves most training questions every time, so we **filter training data by difficulty** before RL.
+- **Qwen3-1.7B is the training base.** With thinking on, the *untrained* model already scores **90.4 on the GSM8K test set** (strict 90.2), above every ≤6B leaderboard claim. It solves 82% of training questions every time, so we **filter training data by difficulty** before RL.
 
 ---
 
@@ -81,7 +81,7 @@ The leaderboard is **self-reported**: each model owner uploads their own score. 
 | Phi-3.5-mini | 4-shot | 79.6 | 69.4 | 86% | 0% | 138 | 3.2 |
 | Phi-3.5-mini | 8-shot | 78.6 | 70.4 | 87% | 0.2% | 131 | 4.1 |
 | **Qwen3-1.7B** | **base** | **84.0** | **82.8** | 98% | 0.4% | 207 | 1.5 |
-| Qwen3-1.7B | think | *running* | | | | | |
+| **Qwen3-1.7B** | **think** | **90.4** | **90.2** | 99% | 0.4% | 799 | 9.9 |
 | Qwen3-0.6B | base | 60.6 | 37.2 | 62% | 0% | 182 | 0.5 |
 | Qwen3-0.6B | 4-shot | 48.8 | 48.4 | 97% | 0.2% | 117 | 0.5 |
 | Qwen3-0.6B | 8-shot | 47.8 | 47.4 | 98% | 0% | 106 | 0.7 |
@@ -248,7 +248,31 @@ right out of 8   questions
 | Avg answer length | 756 tokens |
 | Speed (1x H100, vLLM) | 512 answers in 23 s (~16k tokens/s) |
 
-Without filtering, **about 75% of training compute would teach the model nothing.** Training uses only the learnable questions (`data/train_filtered.jsonl`). *(The full profile of all 6,973 questions is running.)*
+**Full profile, all 6,973 training questions (55,784 sampled answers):**
+
+```
+right out of 8   questions
+  0/8              234   (3.4%)  always wrong
+  1/8               77  ┐
+  2/8               75  │
+  3/8               63  │
+  4/8               82  ├ 1,029 LEARNABLE (15%)
+  5/8               98  │
+  6/8              155  │
+  7/8              479  ┘
+  8/8            5,710   (82%)   always right
+```
+
+| Measure | Value |
+|---|---|
+| Accuracy across all sampled answers | 91.8% strict, 91.9% lenient |
+| Cut off at 4,096 tokens | 2.0% |
+| Avg answer length | 755 overall; **1,522 on learnable questions**; 1,940 on always-wrong ones |
+| Cost | ~35 min on 1x H100 (~$2.50) |
+
+- Without filtering, **82% of training compute would teach the model nothing.** Training uses only the 1,029 learnable questions (`data/train_filtered.jsonl`).
+- Harder questions get longer answers (2x on learnable questions).
+- None of the always-wrong questions failed on format alone. The math was wrong.
 
 ### 6.3 Training plan
 
@@ -267,17 +291,37 @@ Every 50 steps we also check the reward on 200 dev questions, with no learning f
 
 ---
 
+### 6.4 First GPU results: the base model is already strong
+
+All evaluated with vLLM on the H100: greedy, thinking on, 8,192-token limit, same prompt and grader.
+
+| Model | Split | acc | strict | Avg tokens | Cut off |
+|---|---|---|---|---|---|
+| Base Qwen3-1.7B | dev (500) | 91.4 | 91.4 | 816 | 2 |
+| **Base Qwen3-1.7B** | **test (1,319)** | **90.4** | **90.2** | 959 | 15 |
+| Pilot (20 GRPO steps) | dev (500) | 90.2 | 90.2 | 825 | 3 |
+
+- **The untrained model scores 90.4 on test**, above Granite's claimed 86.88. Under a strict, fair setup, a 1.7B model with thinking already leads the ≤6B group.
+- **MLX (Mac) and vLLM (GPU) agree.** Base is right or wrong on the same question in 481 of 500 dev questions (90.4 vs 91.4).
+- **Dev ≈ test for Qwen** (91.4 vs 90.4). Unlike Granite, Qwen's dev score is not inflated.
+- **The pilot did not help** (lost 14, gained 8 questions vs base). Its logs show why: answers grew longer, and the share cut off at 4,096 tokens rose from 3.5% to about 11%. We had set cut-off answers to be *ignored* in the loss, so rambling cost nothing. **Fix for run A: cut-off answers count as wrong (reward 0).**
+- Pilot logs also showed `clip_ratio = 0` on every step. With one update per batch, the policy ratio is always 1, so "clip-higher" (`epsilon_high`) **cannot have any effect** in this setup. Run B is redesigned around settings that matter here: more answers per question, or no reward scaling.
+
+**What RL must do now:** improve a model that is already at 90%. Realistic goal: **+1 to +2 points** and/or shorter answers. With 500 dev questions (±2.6 points), we compare checkpoints question by question, not only by raw accuracy.
+
 ## Status
 
 | Item | Status |
 |---|---|
 | Phase-1 sweep (6 models × settings) | ✅ Done |
 | Qwen3-1.7B base | ✅ 84.0 |
-| Qwen3-1.7B think | ⏳ Running (Mac) |
-| Difficulty profiling, full train set | ⏳ Running (H100) |
+| Qwen3-1.7B think | ✅ 90.4 dev (MLX), 91.4 dev / **90.4 test** (vLLM) |
+| Difficulty profiling, full train set | ✅ 1,029 learnable questions |
+| GRPO pilot (20 steps) | ✅ Works; found length creep, fixed |
 | Test-split check for Granite / Phi-3 (contamination) | ☐ To do |
 | Stock Qwen3.5-0.8B runs | ☐ Skipped (base model changed to Qwen3-1.7B) |
-| GRPO pilot, run A, run B | ☐ Next |
+| GRPO run A (128 steps) | ⏳ Running (H100) |
+| Further runs until dev improves | ☐ Next |
 | Final test-set number + GSM-Plus generalization | ☐ After training |
 
 ## Decisions log
@@ -288,6 +332,8 @@ Every 50 steps we also check the reward on 200 dev questions, with no learning f
 - **2026-11-24**: Switched to batched generation (batch 8, ~3.7x faster). Batched outputs differ very slightly from unbatched ones, so we only compare runs with the same batch size.
 - **2026-11-24**: Chose Qwen3-1.7B (thinking) as the RL base model.
 - **2026-11-25**: Added difficulty filtering before RL, after the 64-question test showed 75% always-right questions.
+- **2026-11-25**: Measured the base model once on test (90.4) as the official "before" number.
+- **2026-11-25**: After the pilot, cut-off answers count as wrong (`mask_truncated_completions: false`). Run A = 128 steps (~2 passes over the learnable set).
 
 ## Reproduce
 
