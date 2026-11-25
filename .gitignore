@@ -8,3 +8,7 @@ checkpoints/
 .pytest_cache/
 .vscode/
 results/*.log
+
+# training artifacts copied from the pod: keep configs + trainer_state, skip big logs/data
+runs/logs/
+runs/*.jsonl

@@ -2,7 +2,7 @@
 
 All evaluation results for this project in one place: what we measured, how, what we found, and what it means for training.
 
-*Last updated: 2026-11-25. GRPO training is in progress (see [Status](#status)).*
+*Last updated: 2026-11-25. GRPO training finished: no run beat the base model (see [6.5](#65-grpo-results-no-run-beat-the-base-model)).*
 
 ---
 
@@ -14,6 +14,7 @@ All evaluation results for this project in one place: what we measured, how, wha
 - **Thinking mode helps small Qwen models a lot** (+17 to +19 points), but costs 5–10x more tokens.
 - **Small models fail on long problems.** The gap between a 0.6B and a 3B model is small on 2-step problems and large on 5+ step problems.
 - **Qwen3-1.7B is the training base.** With thinking on, the *untrained* model already scores **90.4 on the GSM8K test set** (strict 90.2), above every ≤6B leaderboard claim. It solves 82% of training questions every time, so we **filter training data by difficulty** before RL.
+- **GRPO did not improve it.** Three runs (learning rates 1e-6, 3e-6, 1e-5) never beat the base model on dev by more than noise. The highest learning rate made it worse (89.0 vs 91.4), mainly by making answers ramble past the length limit. This is a clear negative result: an already RL-tuned 1.7B model at ~91% on GSM8K has little left that RL on GSM8K's own training set can teach it.
 
 ---
 
@@ -309,6 +310,45 @@ All evaluated with vLLM on the H100: greedy, thinking on, 8,192-token limit, sam
 
 **What RL must do now:** improve a model that is already at 90%. Realistic goal: **+1 to +2 points** and/or shorter answers. With 500 dev questions (±2.6 points), we compare checkpoints question by question, not only by raw accuracy.
 
+### 6.5 GRPO results: no run beat the base model
+
+All runs: Qwen3-1.7B, thinking on, 1,029 filtered "learnable" questions, 8 answers per question, 16 questions per step, temperature 1.0, no KL penalty, cut-off answers get reward 0. Dev scores use vLLM, greedy decoding, an 8,192-token limit, and the same grader as everything else.
+
+| Run | Learning rate | Answer limit | Steps done | Checkpoint | Dev acc | Lost vs base | Gained vs base | Avg tokens | Cut off |
+|---|---|---|---|---|---|---|---|---|---|
+| Base | - | - | - | - | **91.4** | - | - | 816 | 2 |
+| Pilot | 1e-6 | 4,096 | 20 | final | 90.2 | 14 | 8 | 824 | 3 |
+| A | 1e-6 | 4,096 | 87 / 128 | step 32 | 91.2 | 10 | 9 | 839 | 5 |
+| A | | | | step 64 | 91.0 | 12 | 10 | 811 | 3 |
+| B | 3e-6 | 6,144 | 66 / 96 | step 32 | 92.2 | 5 | 9 | 789 | 3 |
+| B | | | | step 64 | 91.2 | 10 | 9 | 845 | 4 |
+| C | 1e-5 | 6,144 | 42 / 64 | step 16 | 89.8 | 17 | 9 | 820 | 14 |
+| C | | | | step 32 | 89.0 | 18 | 6 | 855 | 15 |
+
+**What we saw:**
+
+- **The training reward never went up.** In every run, the average reward on the training questions stayed between about 0.70 and 0.80 from the first step to the last. The base model gets about 0.67–0.75 on these questions, so the model was not learning to solve more of them.
+- **B step 32 (92.2) was luck.** It gained 9 questions and lost 5. Thirty-two steps later the same run was back to 91.2. Across all the models we scored on dev, 45 questions switch between right and wrong from one model to the next, so dev differences smaller than about 1.5 points are noise.
+- **A higher learning rate changed the model, but for the worse.** Run C (1e-5) lost 18 questions and gained 6. The number of answers cut off at 8,192 tokens jumped from 2 to 15. The model learned to think longer without thinking better.
+- **24 dev questions are wrong for every model.** Several look like unclear wording or a questionable label (Section 5.6), so about 95 is a practical ceiling on this dev set.
+
+**Why RL didn't help here (our best explanation):**
+
+1. **Qwen3-1.7B is already RL-trained.** Qwen trained its thinking mode with large-scale RL on math, so GSM8K is already in its comfort zone. Most of the 1,029 "learnable" questions are solved 5–7 times out of 8, so a group of 8 answers often has only 1–2 wrong ones, and the learning signal is weak and noisy.
+2. **The remaining mistakes are not of the kind RL fixes easily.** They are misreadings of the question, unusual wording, and questionable labels, rather than a reasoning skill the model could practice.
+3. **The budget was small.** About 200 total steps across the runs (~3,200 questions × 8 answers). Published gains usually come from thousands of steps on harder, more varied math data.
+
+**What would be worth trying next (not done):**
+
+- Train on **harder math** (e.g. MATH, NuminaMath) instead of GSM8K's own training set, then test whether GSM8K improves as a side effect.
+- **16 answers per question**, so groups that are almost always right still contain some wrong answers to learn from.
+- A **length penalty** or a shorter answer limit, to stop the "think longer" drift seen in run C.
+- **Majority vote at test time** (sampling several answers and picking the most common). This often adds 1–3 points on GSM8K, but it changes how the model is scored rather than the model itself, so it doesn't count as a leaderboard result for the model.
+
+**Decision:** we did **not** publish a trained model to Hugging Face. No checkpoint was better than the base model, so releasing one would mislead people. The base model's 90.4 on test (Section 6.4) is the honest headline number.
+
+**Cost:** about $34 of RunPod credit (H100 SXM at $4.39/hr, plus storage). The pod and the network volume were deleted when training ended.
+
 ## Status
 
 | Item | Status |
@@ -320,9 +360,10 @@ All evaluated with vLLM on the H100: greedy, thinking on, 8,192-token limit, sam
 | GRPO pilot (20 steps) | ✅ Works; found length creep, fixed |
 | Test-split check for Granite / Phi-3 (contamination) | ☐ To do |
 | Stock Qwen3.5-0.8B runs | ☐ Skipped (base model changed to Qwen3-1.7B) |
-| GRPO run A (128 steps) | ⏳ Running (H100) |
-| Further runs until dev improves | ☐ Next |
-| Final test-set number + GSM-Plus generalization | ☐ After training |
+| GRPO runs A / B / C (lr 1e-6 / 3e-6 / 1e-5) | ✅ Done, no gain over base (Section 6.5) |
+| Hugging Face release | ✖ Not done: no checkpoint beat the base model |
+| Final test-set number | ✅ Base model 90.4 (no trained model to test) |
+| Harder-data RL, 16 answers per question, length penalty | ☐ Ideas for future work |
 
 ## Decisions log
 
@@ -334,6 +375,9 @@ All evaluated with vLLM on the H100: greedy, thinking on, 8,192-token limit, sam
 - **2026-11-25**: Added difficulty filtering before RL, after the 64-question test showed 75% always-right questions.
 - **2026-11-25**: Measured the base model once on test (90.4) as the official "before" number.
 - **2026-11-25**: After the pilot, cut-off answers count as wrong (`mask_truncated_completions: false`). Run A = 128 steps (~2 passes over the learnable set).
+- **2026-11-25**: Run A stopped at step 87 (flat reward, dev 91.0–91.2). Run B: learning rate 3e-6, 6,144-token answer limit, no in-training eval (it took 12 minutes each time).
+- **2026-11-25**: Run B stopped at step 66 (step 32 got 92.2, but step 64 fell back to 91.2). Run C: learning rate 1e-5.
+- **2026-11-25**: Run C stopped at step 42 (dev 89.8, then 89.0, with more cut-off answers). Stopped training and deleted the pod and volume. No Hugging Face release.
 
 ## Reproduce
 

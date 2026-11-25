@@ -1,10 +1,12 @@
 # gsm8k-rl
 
-**Training a small Qwen model with reinforcement learning (RLVR / GRPO) to top the ≤6B GSM8K leaderboard, after first checking why the current leaders score what they score.**
+**Can reinforcement learning (RLVR / GRPO) push a small Qwen model to the top of the ≤6B GSM8K leaderboard? We re-tested the leaders under one strict setup, then trained Qwen3-1.7B with GRPO on an H100.**
+
+**Short answer:** the *untrained* Qwen3-1.7B (thinking mode) already scores **90.4 on the GSM8K test set**, above every ≤6B leaderboard claim. Three GRPO runs did **not** improve on it, and the highest learning rate made it worse. This repo documents both the evaluation and that negative result.
 
 GSM8K is a set of grade-school math word problems. A model must solve each one and give a single number. Only the final number is graded.
 
-## Results so far
+## Evaluation results
 
 Same strict test setup for every model, 500 held-out questions (details in [EVAL_RESULTS.md](EVAL_RESULTS.md)):
 
@@ -13,7 +15,7 @@ Same strict test setup for every model, 500 held-out questions (details in [EVAL
 | granite-4.1-3b | 3.4B | zero-shot | 94.2 | 86.88 |
 | Phi-3-mini-4k | 3.8B | zero-shot | 89.6 | 85.7 |
 | Phi-3.5-mini | 3.8B | zero-shot | 87.0 | 86.2 |
-| **Qwen3-1.7B** (our base) | 1.7B | zero-shot | **84.0** | – |
+| **Qwen3-1.7B** (our base) | 1.7B | thinking | **91.4** (test: **90.4**) | – |
 | Qwen3-0.6B | 0.6B | thinking | 77.2 | – |
 | Axonry Qwen3.5-0.8B | 0.87B | thinking | 76.8 | 84.03 |
 
@@ -21,12 +23,26 @@ Key findings:
 1. **Leaderboard scores are not comparable.** They are self-reported, and each team uses its own test setup.
 2. **Few-shot examples hurt every model.** Models copy the short example style and reason less.
 3. **Small models break on long problems**: 5+ step problems cost them 20–25 points.
-4. **75% of training questions are "too easy"** for Qwen3-1.7B, so GRPO would learn nothing from them. We filter for questions the model *sometimes* gets right.
+4. **82% of training questions are "too easy"** for Qwen3-1.7B, so GRPO would learn nothing from them. We filter for questions the model *sometimes* gets right (1,029 of 6,973).
+
+## GRPO results
+
+| Run | Learning rate | Best dev checkpoint | Dev acc (base 91.4) | Lost / gained questions vs base |
+|---|---|---|---|---|
+| Pilot | 1e-6 | step 20 | 90.2 | 14 / 8 |
+| A | 1e-6 | step 32 | 91.2 | 10 / 9 |
+| B | 3e-6 | step 32 | 92.2 → 91.2 at step 64 | 5 / 9, then 10 / 9 |
+| C | 1e-5 | step 16 | 89.8 → 89.0 at step 32 | 17 / 9, then 18 / 6 |
+
+- The training reward stayed flat (about 0.70–0.80) in every run. The model was not learning to solve more training questions.
+- Dev differences under about 1.5 points are noise: 45 of 500 dev questions switch between right and wrong from one model to the next.
+- A higher learning rate made answers longer and more often cut off (2 → 15 at 8,192 tokens), not more accurate.
+- **No model was released on Hugging Face**, because no checkpoint beat the base model. Full analysis and next ideas are in [EVAL_RESULTS.md §6.5](EVAL_RESULTS.md#65-grpo-results-no-run-beat-the-base-model). Total compute cost: about $34.
 
 ## How it works
 
 ```
-GSM8K train ──► difficulty profiling ──► learnable questions ──► GRPO (TRL + vLLM) ──► eval (MLX)
+GSM8K train ──► difficulty profiling ──► learnable questions ──► GRPO (TRL + vLLM) ──► eval (vLLM / MLX)
                 (8 answers / question)    (right 1–7 of 8)        reward = correct "#### N"
 ```
 
@@ -43,6 +59,7 @@ GSM8K train ──► difficulty profiling ──► learnable questions ──�
 | `src/prompts.py` | The single prompt used everywhere |
 | `src/grading.py` | Answer extraction and correctness check |
 | `src/eval.py` | Evaluation on a Mac (MLX), saves every answer for analysis |
+| `src/eval_vllm.py`, `scripts/eval_chain.sh` | Fast GPU evaluation (vLLM) with the same prompt and grader |
 | `src/sweep.py`, `src/aggregate.py` | Run many eval settings from a YAML file, then summarize |
 | `src/rewards.py` | RL reward functions (built on `grading.py`) |
 | `src/profile_difficulty.py` | Samples 8 answers per train question and keeps the learnable ones |
@@ -51,6 +68,7 @@ GSM8K train ──► difficulty profiling ──► learnable questions ──�
 | `scripts/runpod_setup.sh` | One-command setup on a cloud GPU pod |
 | `tests/` | Reward function tests |
 | `results/dev/summary.csv` | Summary of every eval run |
+| `runs/configs/` | Config and `trainer_state.json` (per-step metrics) of every GRPO run |
 
 Not in the repo (git-ignored): data files (rebuilt by `make_splits.py`), per-question result files, model weights, and checkpoints.
 
@@ -72,9 +90,11 @@ bash scripts/runpod_setup.sh                                  # venv + TRL + vLL
 export HF_HOME=/workspace/hf && source /workspace/venv/bin/activate
 python src/profile_difficulty.py configs/grpo_qwen3_17b.yaml  # -> data/train_filtered.jsonl
 python src/train_grpo.py configs/grpo_qwen3_17b.yaml run_name=pilot max_steps=20 eval_n=null
-python src/train_grpo.py configs/grpo_qwen3_17b.yaml          # run A
-python src/train_grpo.py configs/grpo_qwen3_17b.yaml run_name=qwen3-17b-grpo-B \
-    epsilon_high=0.28 scale_rewards=none                      # run B (ablation)
+python src/train_grpo.py configs/grpo_qwen3_17b.yaml run_name=qwen3-17b-grpo-A max_steps=128 eval_n=null
+python src/train_grpo.py configs/grpo_qwen3_17b.yaml run_name=qwen3-17b-grpo-C learning_rate=1.0e-5 \
+    max_steps=64 save_steps=16 eval_n=null max_completion_length=6144 vllm_max_model_length=6656 \
+    per_device_train_batch_size=4 gradient_accumulation_steps=32 vllm_gpu_memory_utilization=0.3
+python src/eval_vllm.py --model checkpoints/qwen3-17b-grpo-C/checkpoint-16 --thinking --tag think_vllm
 ```
 
 ### Tests
@@ -93,9 +113,10 @@ python -m pytest tests/ -q
 
 - [x] Phase 1: Re-test leaderboard models under one setup ([results](EVAL_RESULTS.md))
 - [x] Choose the base model: Qwen3-1.7B (thinking)
-- [ ] Phase 2: Difficulty profiling, GRPO pilot, runs A and B (ablation)
-- [ ] Phase 3: Before/after analysis on dev, then a single test-set run, plus GSM-Plus to check generalization
-- [ ] Phase 4: Publish the model on Hugging Face with a full method card
+- [x] Phase 2: Difficulty profiling, GRPO pilot, runs A / B / C
+- [x] Phase 3: Before/after analysis on dev: no gain over base, so no trained-model test run
+- [ ] ~~Phase 4: Publish on Hugging Face~~ (skipped: nothing better than the base to publish)
+- [ ] Future: RL on harder math (MATH / NuminaMath), 16 answers per question, length penalty, GSM-Plus check
 
 ## Credits
 
