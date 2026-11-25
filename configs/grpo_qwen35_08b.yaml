@@ -1,0 +1,33 @@
+# First real GRPO run: stock Qwen3.5-0.8B, thinking OFF, strict '#### N' reward.
+# Needs an NVIDIA GPU (vLLM). Numbers below are a starting point, not tuned.
+run_name: qwen35-08b-grpo-v1
+model: Qwen/Qwen3.5-0.8B
+revision: 2fc06364715b967f1860aea9cf38778875588b17   # same base as Axonry's edit
+dtype: bfloat16
+thinking: false
+n_train: null                    # all 6,973 train problems
+
+grpo:
+  # --- what is learned
+  learning_rate: 1.0e-6
+  beta: 0.0                      # no KL penalty (TRL default); try 0.01-0.04 as an ablation
+  num_generations: 8             # group size: 8 answers per question
+  temperature: 1.0               # sampling diversity during training
+  max_completion_length: 1024    # base model averages ~180 tokens; room to grow
+  mask_truncated_completions: true   # cut-off answers don't count as failures to learn from
+  num_train_epochs: 1
+  # --- batch: 32 completions x 4 accumulation = 128 completions = 16 questions per step
+  per_device_train_batch_size: 32
+  gradient_accumulation_steps: 4
+  bf16: true
+  gradient_checkpointing: true
+  # --- fast generation
+  use_vllm: true
+  vllm_mode: colocate
+  vllm_gpu_memory_utilization: 0.3
+  # --- logging / saving
+  logging_steps: 5
+  log_completions: true
+  save_steps: 100
+  save_total_limit: 3
+  report_to: none                # set to wandb to get live charts

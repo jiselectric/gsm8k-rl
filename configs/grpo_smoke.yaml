@@ -1,0 +1,20 @@
+# Tiny CPU run to check the pipeline end to end on the Mac. NOT real training.
+# CPU (not the Mac GPU) so it doesn't slow down a running eval sweep.
+run_name: smoke
+model: Qwen/Qwen3.5-0.8B
+revision: 2fc06364715b967f1860aea9cf38778875588b17
+dtype: float32          # CPU has no fast bf16
+thinking: false
+n_train: 4
+
+grpo:
+  use_cpu: true
+  max_steps: 2
+  num_generations: 2            # answers sampled per question (the "group")
+  per_device_train_batch_size: 2
+  max_completion_length: 48     # far too short to solve anything; it's a plumbing test
+  learning_rate: 1.0e-6
+  logging_steps: 1
+  log_completions: true
+  save_strategy: "no"
+  report_to: none

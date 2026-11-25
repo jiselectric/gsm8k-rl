@@ -1,0 +1,25 @@
+# "Before" numbers for the RL base model, Qwen3-1.7B (chosen 2026-11-24).
+# Few-shot is skipped: it hurt every model in phase1.
+# Run:  caffeinate -i python src/sweep.py configs/qwen3_17b_baseline.yaml
+
+split: dev
+n: null
+
+baseline:          # identical to phase1.yaml so numbers are comparable
+  shots: 0
+  seed: 0
+  thinking: false
+  max_tokens: 1024
+  temp: 0.0
+  batch_size: 8
+
+models:
+  - Qwen/Qwen3-1.7B
+
+revisions:
+  Qwen/Qwen3-1.7B: 70d244cc86ccca08cf5af4e1e306ecf908b1ad5e
+
+experiments:
+  - name: base
+  - name: think
+    set: {thinking: true, max_tokens: 8192}

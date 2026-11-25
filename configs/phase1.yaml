@@ -1,0 +1,52 @@
+# Phase 1 sweep: change ONE thing at a time from the baseline.
+# Run:  python src/sweep.py configs/phase1.yaml            (resumes; skips finished runs)
+#       python src/sweep.py configs/phase1.yaml --dry-run  (just list what would run)
+
+split: dev
+n: null            # null = all 500 dev problems
+
+baseline:          # every experiment starts from this
+  shots: 0
+  seed: 0
+  thinking: false
+  max_tokens: 1024
+  temp: 0.0
+  batch_size: 8      # keep identical across runs you compare
+
+models:
+  - Qwen/Qwen3-0.6B                    # reference, not on leaderboard
+  - Axonry/wsp81-qwen3.5-0.8b          # renamed from tobiasxxx/ (same files)
+  - Qwen/Qwen3.5-0.8B                  # stock base of Axonry's edit AND of our RL run
+  - ibm-granite/granite-4.1-3b
+  - microsoft/Phi-3.5-mini-instruct
+  - microsoft/Phi-3-mini-4k-instruct
+
+# Exact versions (commit sha) as of 2026-11-24, so results stay reproducible even
+# if a repo is updated later. Not evaluated: microsoft/Aion-1.0-Instruct-2.3B
+# (rank 5, 74.91) needs custom model code that MLX can't run.
+revisions:
+  Qwen/Qwen3-0.6B: c1899de289a04d12100db370d81485cdf75e47ca
+  Axonry/wsp81-qwen3.5-0.8b: 0f779b197d73bfb9c8fa554047437e35e29ae988
+  Qwen/Qwen3.5-0.8B: 2fc06364715b967f1860aea9cf38778875588b17   # = Axonry's stated base
+  ibm-granite/granite-4.1-3b: c0650403e44e78ec0262dab1c90914c65b196c4e
+  microsoft/Phi-3.5-mini-instruct: 2fe192450127e6a83f7441aef6e3ca586c338b77
+  microsoft/Phi-3-mini-4k-instruct: f39ac1d28e925b323eae81227eaba4464caced4e
+
+experiments:
+  - name: base                         # baseline as-is
+
+  - name: 4shot                        # 4-shot examples = first 4 of the 8-shot ones
+    set: {shots: 4}
+
+  - name: 8shot
+    set: {shots: 8}
+
+  - name: think                        # only meaningful for Qwen
+    set: {thinking: true, max_tokens: 8192}
+    models: [Qwen/Qwen3-0.6B, Axonry/wsp81-qwen3.5-0.8b, Qwen/Qwen3.5-0.8B]
+
+  # A list value expands into one run per value (a grid). Uncomment to check
+  # whether the 8-shot result depends on WHICH examples were picked:
+  # - name: 8shot
+  #   set: {shots: 8, seed: [1, 2]}
+  #   models: [microsoft/Phi-3.5-mini-instruct]
