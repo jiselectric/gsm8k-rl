@@ -66,13 +66,16 @@ def main():
     ap.add_argument("--k", type=int, default=None, help="samples per question (default: num_generations)")
     ap.add_argument("--chunk", type=int, default=512, help="questions per vLLM call (resume granularity)")
     ap.add_argument("--filter-only", action="store_true", help="skip generation, rebuild filtered set")
+    ap.add_argument("--input", default="data/train.jsonl", help="questions to profile")
+    ap.add_argument("--output", default="data/train_filtered.jsonl", help="learnable questions go here")
+    ap.add_argument("--tag", default=None, help="name of the profile file (default: run_name)")
     args = ap.parse_args()
 
     cfg = yaml.safe_load(open(args.config))
     g = cfg["grpo"]
     k = args.k or g["num_generations"]
-    out_path = ROOT / "data" / f"difficulty_{cfg['run_name']}.jsonl"
-    train = [json.loads(l) for l in open(ROOT / "data" / "train.jsonl")]
+    out_path = ROOT / "data" / f"difficulty_{args.tag or cfg['run_name']}.jsonl"
+    train = [json.loads(l) for l in open(ROOT / args.input)]
     train = train[:args.n] if args.n else train
 
     done = {}
@@ -117,7 +120,7 @@ def main():
     summarize(rows, k)
     passes = {r["id"]: r["strict_pass"] for r in select_learnable(rows, k)}
     filtered = [{**r, "strict_pass": passes[r["id"]]} for r in train if r["id"] in passes]
-    filt_path = ROOT / "data" / "train_filtered.jsonl"
+    filt_path = ROOT / args.output
     with open(filt_path, "w") as f:
         for r in filtered:
             f.write(json.dumps(r) + "\n")
