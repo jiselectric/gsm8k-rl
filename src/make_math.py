@@ -4,9 +4,10 @@ Harder than GSM8K, so far more questions land in the "sometimes right" range tha
 learns from. Whole-number answers only, so the same `#### N` grader works unchanged.
 Only the MATH train split is used (never its test split, never any GSM8K eval data).
 
-    python src/make_math.py              # -> data/math_train.jsonl
+    python src/make_math.py              # -> data/math_train.jsonl, data/math_test.jsonl (500)
 """
 import json
+import random
 import re
 
 from datasets import load_dataset
@@ -36,19 +37,30 @@ def integer_answer(solution: str) -> str | None:
     return str(int(a)) if re.fullmatch(r"-?\d+", a) else None
 
 
-def main():
+def build(split: str) -> list[dict]:
     rows = []
     for c in CONFIGS:
-        for i, r in enumerate(load_dataset("EleutherAI/hendrycks_math", c, split="train")):
+        for i, r in enumerate(load_dataset("EleutherAI/hendrycks_math", c, split=split)):
             ans = integer_answer(r["solution"])
             if ans is not None:
-                rows.append({"id": f"math-{c}-{i}", "question": r["problem"], "answer": ans,
+                rows.append({"id": f"math-{split}-{c}-{i}", "question": r["problem"], "answer": ans,
                              "level": r["level"], "subject": c, "source": "math"})
-    out = ROOT / "data" / "math_train.jsonl"
+    return rows
+
+
+def save(rows: list[dict], name: str):
+    out = ROOT / "data" / f"{name}.jsonl"
     with open(out, "w") as f:
         for r in rows:
             f.write(json.dumps(r) + "\n")
     print(f"{len(rows)} problems with whole-number answers -> {out.relative_to(ROOT)}")
+
+
+def main():
+    save(build("train"), "math_train")
+    # Held-out check of MATH skill itself (never trained on): 500 random test problems.
+    test = build("test")
+    save(random.Random(0).sample(test, 500), "math_test")
 
 
 if __name__ == "__main__":

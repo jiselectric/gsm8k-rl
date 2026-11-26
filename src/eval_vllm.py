@@ -24,7 +24,7 @@ def main():
     ap.add_argument("--model", required=True, help="HF repo id or local checkpoint folder")
     ap.add_argument("--revision", default=None)
     ap.add_argument("--thinking", action="store_true")
-    ap.add_argument("--split", default="dev", choices=["dev", "test"])
+    ap.add_argument("--split", default="dev", help="dev | test | any data/<split>.jsonl, e.g. math_test")
     ap.add_argument("--n", type=int, default=None)
     ap.add_argument("--max-tokens", type=int, default=8192)
     ap.add_argument("--tag", required=True)

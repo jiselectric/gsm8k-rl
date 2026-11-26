@@ -2,7 +2,7 @@
 
 **Can reinforcement learning (RLVR / GRPO) push a small Qwen model to the top of the ≤6B GSM8K leaderboard? We re-tested the leaders under one strict setup, then trained Qwen3-1.7B with GRPO on an H100.**
 
-**Short answer:** the *untrained* Qwen3-1.7B (thinking mode) already scores **90.4 on the GSM8K test set**, above every ≤6B leaderboard claim. Three GRPO runs did **not** improve on it, and the highest learning rate made it worse. This repo documents both the evaluation and that negative result.
+**Short answer:** the *untrained* Qwen3-1.7B (thinking mode) already scores **90.4 on the GSM8K test set**, above every ≤6B leaderboard claim. Four GRPO runs did **not** improve on it: three on GSM8K, plus one on harder MATH problems. The highest learning rate made it worse. This repo documents both the evaluation and that negative result.
 
 GSM8K is a set of grade-school math word problems. A model must solve each one and give a single number. Only the final number is graded.
 
@@ -33,11 +33,13 @@ Key findings:
 | A | 1e-6 | step 32 | 91.2 | 10 / 9 |
 | B | 3e-6 | step 32 | 92.2 → 91.2 at step 64 | 5 / 9, then 10 / 9 |
 | C | 1e-5 | step 16 | 89.8 → 89.0 at step 32 | 17 / 9, then 18 / 6 |
+| D (MATH + GSM8K) | 3e-6 | step 48 | 91.8 → 91.4 at step 64; **test 90.2** (base 90.4) | 9 / 11, then 8 / 8 |
 
-- The training reward stayed flat (about 0.70–0.80) in every run. The model was not learning to solve more training questions.
+- On GSM8K alone (A–C), the training reward stayed flat (about 0.70–0.80). The model was not learning to solve more training questions.
+- On harder MATH problems (D), the reward rose, but the model mostly learned to write `#### N` instead of `\boxed{N}`. MATH strict went 72.6 → 82.2, but MATH accuracy stayed at 88.6 → 88.8, and GSM8K didn't move. Measuring both strict and lenient accuracy is what exposed this.
 - Dev differences under about 1.5 points are noise: 45 of 500 dev questions switch between right and wrong from one model to the next.
 - A higher learning rate made answers longer and more often cut off (2 → 15 at 8,192 tokens), not more accurate.
-- **No model was released on Hugging Face**, because no checkpoint beat the base model. Full analysis and next ideas are in [EVAL_RESULTS.md §6.5](EVAL_RESULTS.md#65-grpo-results-no-run-beat-the-base-model). Total compute cost: about $34.
+- **No model was released on Hugging Face**, because no checkpoint beat the base model. Full analysis and next ideas are in [EVAL_RESULTS.md §6.5–6.6](EVAL_RESULTS.md#65-grpo-results-no-run-beat-the-base-model). Total compute cost: about $66.
 
 ## How it works
 
@@ -63,6 +65,7 @@ GSM8K train ──► difficulty profiling ──► learnable questions ──�
 | `src/sweep.py`, `src/aggregate.py` | Run many eval settings from a YAML file, then summarize |
 | `src/rewards.py` | RL reward functions (built on `grading.py`) |
 | `src/profile_difficulty.py` | Samples 8 answers per train question and keeps the learnable ones |
+| `src/make_math.py` | Builds MATH train/test sets with whole-number answers (run D) |
 | `src/train_grpo.py` | GRPO training with TRL; `key=value` overrides on the command line |
 | `configs/` | Eval sweeps (`phase1.yaml`, `qwen3_17b_baseline.yaml`) and training configs (`grpo_qwen3_17b.yaml`) |
 | `scripts/runpod_setup.sh` | One-command setup on a cloud GPU pod |
@@ -113,10 +116,10 @@ python -m pytest tests/ -q
 
 - [x] Phase 1: Re-test leaderboard models under one setup ([results](EVAL_RESULTS.md))
 - [x] Choose the base model: Qwen3-1.7B (thinking)
-- [x] Phase 2: Difficulty profiling, GRPO pilot, runs A / B / C
+- [x] Phase 2: Difficulty profiling, GRPO pilot, runs A / B / C, run D on harder MATH problems
 - [x] Phase 3: Before/after analysis on dev: no gain over base, so no trained-model test run
 - [ ] ~~Phase 4: Publish on Hugging Face~~ (skipped: nothing better than the base to publish)
-- [ ] Future: RL on harder math (MATH / NuminaMath), 16 answers per question, length penalty, GSM-Plus check
+- [ ] Future: 16 answers per question, length penalty, majority vote, GSM-Plus check
 
 ## Credits
 

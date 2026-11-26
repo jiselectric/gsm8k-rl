@@ -2,7 +2,7 @@
 
 All evaluation results for this project in one place: what we measured, how, what we found, and what it means for training.
 
-*Last updated: 2026-11-25. GRPO training finished: no run beat the base model (see [6.5](#65-grpo-results-no-run-beat-the-base-model)).*
+*Last updated: 2026-11-26. Four GRPO runs finished: none beat the base model on GSM8K (see [6.5](#65-grpo-results-no-run-beat-the-base-model) and [6.6](#66-run-d-training-on-harder-math-problems)).*
 
 ---
 
@@ -14,6 +14,7 @@ All evaluation results for this project in one place: what we measured, how, wha
 - **Thinking mode helps small Qwen models a lot** (+17 to +19 points), but costs 5–10x more tokens.
 - **Small models fail on long problems.** The gap between a 0.6B and a 3B model is small on 2-step problems and large on 5+ step problems.
 - **Qwen3-1.7B is the training base.** With thinking on, the *untrained* model already scores **90.4 on the GSM8K test set** (strict 90.2), above every ≤6B leaderboard claim. It solves 82% of training questions every time, so we **filter training data by difficulty** before RL.
+- **Run D (harder MATH problems) made the model learn, but not on GSM8K.** Its training reward rose for the first time, and the `#### N` format on MATH went from 72.6% to 82.2% of answers. But real MATH accuracy (88.6 → 88.8) and GSM8K test (90.4 → 90.2) did not move. Section 6.6.
 - **GRPO did not improve it.** Three runs (learning rates 1e-6, 3e-6, 1e-5) never beat the base model on dev by more than noise. The highest learning rate made it worse (89.0 vs 91.4), mainly by making answers ramble past the length limit. This is a clear negative result: an already RL-tuned 1.7B model at ~91% on GSM8K has little left that RL on GSM8K's own training set can teach it.
 
 ---
@@ -349,6 +350,50 @@ All runs: Qwen3-1.7B, thinking on, 1,029 filtered "learnable" questions, 8 answe
 
 **Cost:** about $34 of RunPod credit (H100 SXM at $4.39/hr, plus storage). The pod and the network volume were deleted when training ended.
 
+### 6.6 Run D: training on harder math problems
+
+Runs A–C had a weak learning signal: most "learnable" GSM8K questions were already right 6–7 times out of 8. Run D trains on **harder problems** instead.
+
+**Data.** We kept the [MATH](https://huggingface.co/datasets/EleutherAI/hendrycks_math) *train* problems that have a whole-number answer (4,786, so the same `#### N` grader works), and profiled them like GSM8K (8 answers each, 6,144-token limit):
+
+| | GSM8K train | MATH train |
+|---|---|---|
+| Always right (nothing to learn) | 82% | 47% |
+| **Learnable (right 1–7 of 8)** | **15%** (1,029) | **43%** (2,043) |
+| Always wrong | 3% | 12% |
+| Average answer length | 755 tokens | ~2,200 tokens |
+
+Training set: the 2,043 learnable MATH problems plus the 1,029 learnable GSM8K questions. Settings: learning rate 3e-6, 6,144-token answers, 16 questions × 8 answers per step. Stopped at step 69 of 96.
+
+**Training reward went up for the first time:** 0.66 (steps 1–8) → about 0.75–0.78 (steps 40–69). Runs A–C never moved.
+
+**GSM8K dev (500):**
+
+| Checkpoint | Dev acc | Lost / gained vs base | Avg tokens |
+|---|---|---|---|
+| Base | 91.4 | – | 816 |
+| D step 16 | 89.4 | 16 / 6 | 810 |
+| D step 32 | 91.0 | 10 / 8 | 805 |
+| D step 48 | 91.8 | 9 / 11 | 786 |
+| D step 64 | 91.4 | 8 / 8 | 795 |
+
+**Final checks** (step 48 was chosen because it had the best dev score; each test was run once):
+
+| Model | GSM8K test (1,319) | MATH test (500, never trained on): acc | MATH test: strict (`####` only) |
+|---|---|---|---|
+| Base | **90.4** | 88.6 | 72.6 |
+| D step 48 | 90.2 (lost 34, gained 32) | 88.8 | **82.2** |
+| D step 64 | – | 88.2 | **82.2** |
+
+**What this means:**
+
+- **What the model learned was the format, not the math.** On MATH problems the base model often wrote `\boxed{N}` instead of `#### N` (88 of 500 answers). The strict reward only pays for `#### N`, so RL taught it to use `####` (strict 72.6 → 82.2). The number of problems it actually solves (`acc`, any answer format) did not change (88.6 → 88.8).
+- **Nothing transferred to GSM8K.** On GSM8K the base model already uses `####` almost every time, so there was no format to learn, and the dev/test differences are noise (test: lost 34, gained 32).
+- **Answers got a little shorter** (GSM8K test: 958 → 901 tokens; MATH: 2,474 → 2,343), with no loss in accuracy. A small efficiency gain, but not a score gain.
+- **Lesson:** the rising training reward looked like progress, but it came from the easiest thing to fix (format). Splitting the score into "solved" (acc) and "solved in the right format" (strict) showed this. Without that split, we would have reported a fake +10-point MATH gain.
+
+**Cost:** about $32 for run D (profiling ~2h20m, training ~3h, checks ~45m). Total for the project: about $66 of RunPod credit.
+
 ## Status
 
 | Item | Status |
@@ -361,9 +406,10 @@ All runs: Qwen3-1.7B, thinking on, 1,029 filtered "learnable" questions, 8 answe
 | Test-split check for Granite / Phi-3 (contamination) | ☐ To do |
 | Stock Qwen3.5-0.8B runs | ☐ Skipped (base model changed to Qwen3-1.7B) |
 | GRPO runs A / B / C (lr 1e-6 / 3e-6 / 1e-5) | ✅ Done, no gain over base (Section 6.5) |
+| GRPO run D (MATH + GSM8K) | ✅ Done: format learned, no accuracy gain (Section 6.6) |
 | Hugging Face release | ✖ Not done: no checkpoint beat the base model |
-| Final test-set number | ✅ Base model 90.4 (no trained model to test) |
-| Harder-data RL, 16 answers per question, length penalty | ☐ Ideas for future work |
+| Final test-set number | ✅ Base 90.4, run D step 48: 90.2 |
+| 16 answers per question, length penalty, majority vote | ☐ Ideas for future work |
 
 ## Decisions log
 
@@ -378,6 +424,7 @@ All runs: Qwen3-1.7B, thinking on, 1,029 filtered "learnable" questions, 8 answe
 - **2026-11-25**: Run A stopped at step 87 (flat reward, dev 91.0–91.2). Run B: learning rate 3e-6, 6,144-token answer limit, no in-training eval (it took 12 minutes each time).
 - **2026-11-25**: Run B stopped at step 66 (step 32 got 92.2, but step 64 fell back to 91.2). Run C: learning rate 1e-5.
 - **2026-11-25**: Run C stopped at step 42 (dev 89.8, then 89.0, with more cut-off answers). Stopped training and deleted the pod and volume. No Hugging Face release.
+- **2026-11-26**: Run D: harder MATH problems (whole-number answers) + learnable GSM8K, lr 3e-6. Training reward rose, but GSM8K dev stayed at 89.4–91.8. Stopped at step 69. Final checks: GSM8K test 90.2 (base 90.4); MATH strict +9.6 but MATH acc unchanged. Pod deleted.
 
 ## Reproduce
 
