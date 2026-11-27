@@ -2,20 +2,23 @@
 
 All evaluation results for this project in one place: what we measured, how, what we found, and what it means for training.
 
-*Last updated: 2026-11-26. Four GRPO runs finished: none beat the base model on GSM8K (see [6.5](#65-grpo-results-no-run-beat-the-base-model) and [6.6](#66-run-d-training-on-harder-math-problems)).*
+*Last updated: 2026-11-26. A pilot and four GRPO runs finished. None gave a confirmed GSM8K gain over the original checkpoint (see [6.5](#65-grpo-results-no-run-beat-the-original-checkpoint) and [6.6](#66-run-d-training-on-harder-math-problems)).*
+
+**Words used here.** *Original checkpoint* means Qwen/Qwen3-1.7B at commit `70d244c`, with thinking on, before our GRPO runs. *Dev* is our 500-question split held out from GSM8K train. *Test* is the official 1,319-question GSM8K test split.
 
 ---
 
 ## 1. Summary
 
-- We re-tested the top **≤6B models on the GSM8K leaderboard** with **one fixed, strict test setup**, plus two small Qwen models.
-- **Leaderboard numbers are not comparable.** Every team scores its own model with its own setup. Under our setup, some models scored *higher* than their claim, and one scored *lower*.
+- We re-tested the top **≤6B models on the GSM8K leaderboard** with **one fixed evaluation setup** on our dev split, plus two small Qwen models.
+- **Leaderboard numbers are not comparable.** Every team scores its own model with its own setup. Under our setup (on dev, not test), some models scored *higher* than their claim, and one scored *lower*.
 - **Solved examples in the prompt (few-shot) made every model worse.** The models copied the short example style and reasoned less.
 - **Thinking mode helps small Qwen models a lot** (+17 to +19 points), but costs 5–10x more tokens.
 - **Small models fail on long problems.** The gap between a 0.6B and a 3B model is small on 2-step problems and large on 5+ step problems.
-- **Qwen3-1.7B is the training base.** With thinking on, the *untrained* model already scores **90.4 on the GSM8K test set** (strict 90.2), above every ≤6B leaderboard claim. It solves 82% of training questions every time, so we **filter training data by difficulty** before RL.
-- **Run D (harder MATH problems) made the model learn, but not on GSM8K.** Its training reward rose for the first time, and the `#### N` format on MATH went from 72.6% to 82.2% of answers. But real MATH accuracy (88.6 → 88.8) and GSM8K test (90.4 → 90.2) did not move. Section 6.6.
-- **GRPO did not improve it.** Three runs (learning rates 1e-6, 3e-6, 1e-5) never beat the base model on dev by more than noise. The highest learning rate made it worse (89.0 vs 91.4), mainly by making answers ramble past the length limit. This is a clear negative result: an already RL-tuned 1.7B model at ~91% on GSM8K has little left that RL on GSM8K's own training set can teach it.
+- **Qwen3-1.7B is the training base.** With thinking on, the original checkpoint scores **91.4 on dev** and **90.4 on the official test split** (1,192 of 1,319; strict 90.2). That is numerically above every ≤6B leaderboard claim, but those claims are self-reported with other protocols, so it is not a like-for-like ranking. The original checkpoint solves 82% of training questions in all 8 sampled attempts, so we **filter training data by difficulty** before RL.
+- **GSM8K-only GRPO (pilot, A, B, C) gave no confirmed gain.** Run B reached 92.2 on dev at step 32, then fell to 91.2 at step 64. The highest learning rate made it worse (89.0 vs 91.4), mainly by making answers run past the length limit.
+- **Run D (harder MATH problems) raised the training reward, but through format, not skill.** On a 500-problem MATH test sample, the strict score (requires `#### N`) rose from 72.6 to 82.2. The format-tolerant score went from 88.6 to 88.8, one more correct answer. On the official GSM8K test, run D's selected checkpoint scored 90.2 (1,190 correct vs 1,192). Section 6.6 explains why these results fit together.
+- **Conclusion:** a 1.7B model that has already had RL and sits near 91% on GSM8K has little left that this budget of RL can teach it. The most useful result is how a correctness-plus-format reward can rise without any gain in problem solving.
 
 ---
 
@@ -207,7 +210,7 @@ steps   questions   granite   Phi-3   Phi-3.5   Qwen3-1.7B   Qwen3-0.6B   Axonry
 
 ### 5.6 Hard questions and possibly bad labels
 
-Only **11 of 500** questions are missed by every model's best setting. If we could always pick the best model per question, accuracy would be 97.8%. Some of those 11 may have wrong gold answers, which is a known GSM8K issue. They still need checking by hand.
+Only **11 of 500** questions are missed by every model's best setting. If we could always pick the best model per question, accuracy would be 97.8%. Some of those 11 may have wrong gold answers, which is a known GSM8K issue. Section 6.5 has a related count for Qwen3-1.7B: 23 dev questions are wrong for the original checkpoint and for every trained checkpoint.
 
 ---
 
@@ -278,6 +281,8 @@ right out of 8   questions
 
 ### 6.3 Training plan
 
+*This is the plan as written before the pilot. The pilot changed it: run A was cut to 128 planned steps, and run B dropped clip-higher (it can't have an effect here, see 6.4). What actually ran is in 6.5 and 6.6.*
+
 | Run | What changes | Why |
 |---|---|---|
 | Pilot | 20 steps | Check that the reward rises, memory is OK, and few groups lack signal |
@@ -293,31 +298,31 @@ Every 50 steps we also check the reward on 200 dev questions, with no learning f
 
 ---
 
-### 6.4 First GPU results: the base model is already strong
+### 6.4 First GPU results: the original checkpoint is already strong
 
 All evaluated with vLLM on the H100: greedy, thinking on, 8,192-token limit, same prompt and grader.
 
 | Model | Split | acc | strict | Avg tokens | Cut off |
 |---|---|---|---|---|---|
-| Base Qwen3-1.7B | dev (500) | 91.4 | 91.4 | 816 | 2 |
-| **Base Qwen3-1.7B** | **test (1,319)** | **90.4** | **90.2** | 959 | 15 |
+| Original checkpoint | dev (500) | 91.4 | 91.4 | 816 | 2 |
+| **Original checkpoint** | **test (1,319)** | **90.4** (1,192) | **90.2** (1,190) | 959 | 15 |
 | Pilot (20 GRPO steps) | dev (500) | 90.2 | 90.2 | 825 | 3 |
 
-- **The untrained model scores 90.4 on test**, above Granite's claimed 86.88. Under a strict, fair setup, a 1.7B model with thinking already leads the ≤6B group.
-- **MLX (Mac) and vLLM (GPU) agree.** Base is right or wrong on the same question in 481 of 500 dev questions (90.4 vs 91.4).
-- **Dev ≈ test for Qwen** (91.4 vs 90.4). Unlike Granite, Qwen's dev score is not inflated.
-- **The pilot did not help** (lost 14, gained 8 questions vs base). Its logs show why: answers grew longer, and the share cut off at 4,096 tokens rose from 3.5% to about 11%. We had set cut-off answers to be *ignored* in the loss, so rambling cost nothing. **Fix for run A: cut-off answers count as wrong (reward 0).**
+- **Before our GRPO runs, the original checkpoint scores 90.4 on the official test split.** That is numerically above every ≤6B leaderboard claim (the highest is Granite's 86.88). But the claims are self-reported under each team's own protocol, and we did not score Granite or Phi on test (Granite scored 94.2 on our *dev* split). So this shows a strong 1.7B model under a strict setup, not a verified leaderboard rank.
+- **MLX (Mac) and vLLM (GPU) agree.** The original checkpoint is right or wrong on the same question in 481 of 500 dev questions (90.4 vs 91.4).
+- **Dev ≈ test for Qwen** (91.4 vs 90.4), so Qwen's dev score does not look inflated. We have not run this check for the other models (see 5.1).
+- **The pilot did not help** (lost 14, gained 8 questions vs the original checkpoint). Its logs show why: answers grew longer, and the share cut off at 4,096 tokens rose from 3.5% to about 11%. We had set cut-off answers to be *ignored* in the loss, so rambling cost nothing. **Fix for run A: cut-off answers count as wrong (reward 0).**
 - Pilot logs also showed `clip_ratio = 0` on every step. With one update per batch, the policy ratio is always 1, so "clip-higher" (`epsilon_high`) **cannot have any effect** in this setup. Run B is redesigned around settings that matter here: more answers per question, or no reward scaling.
 
 **What RL must do now:** improve a model that is already at 90%. Realistic goal: **+1 to +2 points** and/or shorter answers. With 500 dev questions (±2.6 points), we compare checkpoints question by question, not only by raw accuracy.
 
-### 6.5 GRPO results: no run beat the base model
+### 6.5 GRPO results: no run beat the original checkpoint
 
 All runs: Qwen3-1.7B, thinking on, 1,029 filtered "learnable" questions, 8 answers per question, 16 questions per step, temperature 1.0, no KL penalty, cut-off answers get reward 0. Dev scores use vLLM, greedy decoding, an 8,192-token limit, and the same grader as everything else.
 
-| Run | Learning rate | Answer limit | Steps done | Checkpoint | Dev acc | Lost vs base | Gained vs base | Avg tokens | Cut off |
+| Run | Learning rate | Answer limit | Steps done | Checkpoint | Dev acc | Lost vs original | Gained vs original | Avg tokens | Cut off |
 |---|---|---|---|---|---|---|---|---|---|
-| Base | - | - | - | - | **91.4** | - | - | 816 | 2 |
+| Original checkpoint | - | - | - | - | **91.4** | - | - | 816 | 2 |
 | Pilot | 1e-6 | 4,096 | 20 | final | 90.2 | 14 | 8 | 824 | 3 |
 | A | 1e-6 | 4,096 | 87 / 128 | step 32 | 91.2 | 10 | 9 | 839 | 5 |
 | A | | | | step 64 | 91.0 | 12 | 10 | 811 | 3 |
@@ -328,10 +333,12 @@ All runs: Qwen3-1.7B, thinking on, 1,029 filtered "learnable" questions, 8 answe
 
 **What we saw:**
 
-- **The training reward never went up.** In every run, the average reward on the training questions stayed between about 0.70 and 0.80 from the first step to the last. The base model gets about 0.67–0.75 on these questions, so the model was not learning to solve more of them.
-- **B step 32 (92.2) was luck.** It gained 9 questions and lost 5. Thirty-two steps later the same run was back to 91.2. Across all the models we scored on dev, 45 questions switch between right and wrong from one model to the next, so dev differences smaller than about 1.5 points are noise.
+- **The training reward showed no upward trend.** Single steps ranged from about 0.40 to 0.95, but the 8-step average stayed around 0.70–0.80 for the whole of every run.
+  - The first steps were already above the profiling estimate of 0.67. That is expected: questions were kept *because* one 8-answer draw was imperfect, so a fresh draw of the same question often scores higher (regression to the mean).
+  - The same effect weakens the signal. On average **39–43% of groups** in each run had all 8 answers with the same reward (`frac_reward_zero_std` in `runs/configs/*/trainer_state.json`), so they taught nothing.
+- **B step 32 (92.2) did not hold.** It gained 9 questions and lost 5, but thirty-two steps later the same run was back to 91.2. Across our 12 GPU evaluations on dev (the original checkpoint plus 11 trained checkpoints), **71 of the 500 questions** are right in some evaluations and wrong in others. So dev differences of a point or two are within noise.
 - **A higher learning rate changed the model, but for the worse.** Run C (1e-5) lost 18 questions and gained 6. The number of answers cut off at 8,192 tokens jumped from 2 to 15. The model learned to think longer without thinking better.
-- **24 dev questions are wrong for every model.** Several look like unclear wording or a questionable label (Section 5.6), so about 95 is a practical ceiling on this dev set.
+- **23 dev questions are wrong in all 12 of those evaluations.** Several look like unclear wording or a questionable label (Section 5.6), so about 95 is a practical ceiling on this dev set.
 
 **Why RL didn't help here (our best explanation):**
 
@@ -339,14 +346,14 @@ All runs: Qwen3-1.7B, thinking on, 1,029 filtered "learnable" questions, 8 answe
 2. **The remaining mistakes are not of the kind RL fixes easily.** They are misreadings of the question, unusual wording, and questionable labels, rather than a reasoning skill the model could practice.
 3. **The budget was small.** About 200 total steps across the runs (~3,200 questions × 8 answers). Published gains usually come from thousands of steps on harder, more varied math data.
 
-**What would be worth trying next (not done):**
+**What would be worth trying next:**
 
-- Train on **harder math** (e.g. MATH, NuminaMath) instead of GSM8K's own training set, then test whether GSM8K improves as a side effect.
+- Train on **harder math** (e.g. MATH, NuminaMath) instead of GSM8K's own training set, then test whether GSM8K improves as a side effect. *Done as run D (Section 6.6).*
 - **16 answers per question**, so groups that are almost always right still contain some wrong answers to learn from.
 - A **length penalty** or a shorter answer limit, to stop the "think longer" drift seen in run C.
 - **Majority vote at test time** (sampling several answers and picking the most common). This often adds 1–3 points on GSM8K, but it changes how the model is scored rather than the model itself, so it doesn't count as a leaderboard result for the model.
 
-**Decision:** we did **not** publish a trained model to Hugging Face. No checkpoint was better than the base model, so releasing one would mislead people. The base model's 90.4 on test (Section 6.4) is the honest headline number.
+**Decision:** we did **not** publish a trained model to Hugging Face. No checkpoint was better than the original checkpoint, so releasing one would mislead people. The original checkpoint's 90.4 on test (Section 6.4) is the honest headline number.
 
 **Cost:** about $34 of RunPod credit (H100 SXM at $4.39/hr, plus storage). The pod and the network volume were deleted when training ended.
 
@@ -354,14 +361,17 @@ All runs: Qwen3-1.7B, thinking on, 1,029 filtered "learnable" questions, 8 answe
 
 Runs A–C had a weak learning signal: most "learnable" GSM8K questions were already right 6–7 times out of 8. Run D trains on **harder problems** instead.
 
-**Data.** We kept the [MATH](https://huggingface.co/datasets/EleutherAI/hendrycks_math) *train* problems that have a whole-number answer (4,786, so the same `#### N` grader works), and profiled them like GSM8K (8 answers each, 6,144-token limit):
+**Data.** We kept the [MATH](https://huggingface.co/datasets/EleutherAI/hendrycks_math) *train* problems that have a whole-number answer (4,786, so the same `#### N` grader works). We profiled them like GSM8K (8 answers each, 6,144-token limit for MATH). Outcomes below are what we observed under the **format-sensitive (strict) grader**, the same rule as the training reward. Source: `runs/difficulty_math.jsonl` and `runs/difficulty_qwen3-17b-grpo-v1.jsonl`.
 
-| | GSM8K train | MATH train |
+| Strict passes out of 8 | GSM8K train (6,973) | MATH train (4,786) |
 |---|---|---|
-| Always right (nothing to learn) | 82% | 47% |
-| **Learnable (right 1–7 of 8)** | **15%** (1,029) | **43%** (2,043) |
-| Always wrong | 3% | 12% |
-| Average answer length | 755 tokens | ~2,200 tokens |
+| 8 of 8 (no signal) | 5,710 (82%) | 1,952 (41%) |
+| **1–7 of 8 (learnable)** | **1,029 (15%)** | **2,043 (43%)** |
+| 0 of 8 (no signal) | 234 (3%) | 791 (17%) |
+| Average answer length | 755 tokens | 2,549 tokens |
+| Answers cut off | 2.0% | 17.5% |
+
+The same MATH samples look very different under the **format-tolerant grader**: 3,158 problems (66%) are right in all 8 attempts and 505 (11%) in none. Much of what the strict grader marked as "learnable" or "always wrong" on MATH was a right answer in `\boxed{}` instead of `####`. On GSM8K the two graders almost agree (5,731 all-right, 234 none), because the model already uses `####` there.
 
 Training set: the 2,043 learnable MATH problems plus the 1,029 learnable GSM8K questions. Settings: learning rate 3e-6, 6,144-token answers, 16 questions × 8 answers per step. Stopped at step 69 of 96.
 
@@ -369,9 +379,9 @@ Training set: the 2,043 learnable MATH problems plus the 1,029 learnable GSM8K q
 
 **GSM8K dev (500):**
 
-| Checkpoint | Dev acc | Lost / gained vs base | Avg tokens |
+| Checkpoint | Dev acc | Lost / gained vs original | Avg tokens |
 |---|---|---|---|
-| Base | 91.4 | – | 816 |
+| Original checkpoint | 91.4 | – | 816 |
 | D step 16 | 89.4 | 16 / 6 | 810 |
 | D step 32 | 91.0 | 10 / 8 | 805 |
 | D step 48 | 91.8 | 9 / 11 | 786 |
@@ -379,18 +389,36 @@ Training set: the 2,043 learnable MATH problems plus the 1,029 learnable GSM8K q
 
 **Final checks** (step 48 was chosen because it had the best dev score; each test was run once):
 
-| Model | GSM8K test (1,319) | MATH test (500, never trained on): acc | MATH test: strict (`####` only) |
+| Model | GSM8K test (1,319): acc | MATH test sample (500, integer answers, never trained on): acc, any format | MATH test sample: strict, `#### N` only |
 |---|---|---|---|
-| Base | **90.4** | 88.6 | 72.6 |
-| D step 48 | 90.2 (lost 34, gained 32) | 88.8 | **82.2** |
-| D step 64 | – | 88.2 | **82.2** |
+| Original checkpoint | **90.4** (1,192) | 88.6 (443) | 72.6 (363) |
+| D step 48 | 90.2 (1,190; lost 34, gained 32) | 88.8 (444; lost 22, gained 23) | **82.2** (411) |
+| D step 64 | – | 88.2 (441) | **82.2** (411) |
 
-**What this means:**
+On GSM8K test, the strict scores are the same: 1,190 for both.
 
-- **What the model learned was the format, not the math.** On MATH problems the base model often wrote `\boxed{N}` instead of `#### N` (88 of 500 answers). The strict reward only pays for `#### N`, so RL taught it to use `####` (strict 72.6 → 82.2). The number of problems it actually solves (`acc`, any answer format) did not change (88.6 → 88.8).
-- **Nothing transferred to GSM8K.** On GSM8K the base model already uses `####` almost every time, so there was no format to learn, and the dev/test differences are noise (test: lost 34, gained 32).
-- **Answers got a little shorter** (GSM8K test: 958 → 901 tokens; MATH: 2,474 → 2,343), with no loss in accuracy. A small efficiency gain, but not a score gain.
-- **Lesson:** the rising training reward looked like progress, but it came from the easiest thing to fix (format). Splitting the score into "solved" (acc) and "solved in the right format" (strict) showed this. Without that split, we would have reported a fake +10-point MATH gain.
+#### Why the reward rose but problem solving didn't
+
+The training reward and the strict score measure the same thing: *right number* **and** *written as `#### N`*. Either part can move that score. The format-tolerant score (`acc`) measures only the first part. The evidence:
+
+1. **The original checkpoint was often right in the wrong format on MATH.** On the MATH test sample it wrote `\boxed{N}` for 88 of 500 answers, the style MATH solutions use. A right answer in `\boxed{}` gets reward 0.
+2. **GRPO rewards exactly that difference.** In one group of 8 answers, some say `\boxed{42}` and some say `#### 42`, with the same math. Only the `####` ones get reward 1, so the advantage points straight at the format. It is one habit that pays off on every problem. Getting a hard problem right more often needs changes specific to that problem, and the reward pays off less reliably.
+3. **The training logs show it.** We log both rewards but train only on strict (`runs/configs/qwen3-17b-grpo-D/checkpoint-64_trainer_state.json`, averaged over steps):
+
+   | Run D steps | Strict reward (trained on) | Format-tolerant reward (logged only) | Gap |
+   |---|---|---|---|
+   | 1–8 | 0.66 | 0.81 | 0.15 |
+   | 9–24 | 0.71 | 0.83 | 0.12 |
+   | 25–40 | 0.76 | 0.86 | 0.10 |
+   | 41–56 | 0.77 | 0.85 | 0.08 |
+
+   Strict rose by 0.11 but format-tolerant by only 0.04. Most of the rise came from closing the gap.
+4. **The test results show it too.** On the MATH test sample, `\boxed{}` answers dropped from 88 to 34, and strict-correct answers rose from 363 to 411 (+48). Format-tolerant correct answers went from 443 to 444 (lost 22, gained 23).
+5. **GSM8K had no format to fix.** The original checkpoint already ends about 99% of GSM8K answers with `####` (1,300 of 1,319 on test). So the one thing run D learned had nothing to improve on GSM8K, and the test change (lost 34, gained 32) is noise.
+
+**Other effect:** answers got a little shorter (GSM8K test: 959 → 901 tokens; MATH: 2,474 → 2,343), with no loss in accuracy. That is a small efficiency gain, not a score gain.
+
+**Lesson for reward design:** a reward that checks correctness *and* format will push on whichever part is cheaper to fix. Two fixes are to accept `\boxed{N}` in the reward when training on MATH, or to always report a format-tolerant score next to the strict one. We did the second. Without it, run D would have looked like a +9.6-point MATH gain.
 
 **Cost:** about $32 for run D (profiling ~2h20m, training ~3h, checks ~45m). Total for the project: about $66 of RunPod credit.
 
@@ -400,16 +428,16 @@ Training set: the 2,043 learnable MATH problems plus the 1,029 learnable GSM8K q
 |---|---|
 | Phase-1 sweep (6 models × settings) | ✅ Done |
 | Qwen3-1.7B base | ✅ 84.0 |
-| Qwen3-1.7B think | ✅ 90.4 dev (MLX), 91.4 dev / **90.4 test** (vLLM) |
+| Qwen3-1.7B think (original checkpoint) | ✅ 90.4 dev (MLX), 91.4 dev / **90.4 test** (vLLM) |
 | Difficulty profiling, full train set | ✅ 1,029 learnable questions |
 | GRPO pilot (20 steps) | ✅ Works; found length creep, fixed |
 | Test-split check for Granite / Phi-3 (contamination) | ☐ To do |
 | Stock Qwen3.5-0.8B runs | ☐ Skipped (base model changed to Qwen3-1.7B) |
-| GRPO runs A / B / C (lr 1e-6 / 3e-6 / 1e-5) | ✅ Done, no gain over base (Section 6.5) |
+| GRPO runs A / B / C (lr 1e-6 / 3e-6 / 1e-5) | ✅ Done, no confirmed gain over the original checkpoint (Section 6.5) |
 | GRPO run D (MATH + GSM8K) | ✅ Done: format learned, no accuracy gain (Section 6.6) |
-| Hugging Face release | ✖ Not done: no checkpoint beat the base model |
-| Final test-set number | ✅ Base 90.4, run D step 48: 90.2 |
-| 16 answers per question, length penalty, majority vote | ☐ Ideas for future work |
+| Hugging Face release | ✖ Not done: no checkpoint beat the original checkpoint |
+| Final test-set number | ✅ Original checkpoint 90.4 (1,192), run D step 48: 90.2 (1,190) |
+| Accept `\boxed{N}` in the reward for MATH, 16 answers per question, length penalty, majority vote | ☐ Ideas for future work |
 
 ## Decisions log
 
@@ -419,12 +447,12 @@ Training set: the 2,043 learnable MATH problems plus the 1,029 learnable GSM8K q
 - **2026-11-24**: Switched to batched generation (batch 8, ~3.7x faster). Batched outputs differ very slightly from unbatched ones, so we only compare runs with the same batch size.
 - **2026-11-24**: Chose Qwen3-1.7B (thinking) as the RL base model.
 - **2026-11-25**: Added difficulty filtering before RL, after the 64-question test showed 75% always-right questions.
-- **2026-11-25**: Measured the base model once on test (90.4) as the official "before" number.
+- **2026-11-25**: Measured the original checkpoint once on test (90.4) as the official "before" number.
 - **2026-11-25**: After the pilot, cut-off answers count as wrong (`mask_truncated_completions: false`). Run A = 128 steps (~2 passes over the learnable set).
 - **2026-11-25**: Run A stopped at step 87 (flat reward, dev 91.0–91.2). Run B: learning rate 3e-6, 6,144-token answer limit, no in-training eval (it took 12 minutes each time).
 - **2026-11-25**: Run B stopped at step 66 (step 32 got 92.2, but step 64 fell back to 91.2). Run C: learning rate 1e-5.
 - **2026-11-25**: Run C stopped at step 42 (dev 89.8, then 89.0, with more cut-off answers). Stopped training and deleted the pod and volume. No Hugging Face release.
-- **2026-11-26**: Run D: harder MATH problems (whole-number answers) + learnable GSM8K, lr 3e-6. Training reward rose, but GSM8K dev stayed at 89.4–91.8. Stopped at step 69. Final checks: GSM8K test 90.2 (base 90.4); MATH strict +9.6 but MATH acc unchanged. Pod deleted.
+- **2026-11-26**: Run D: harder MATH problems (whole-number answers) + learnable GSM8K, lr 3e-6. Training reward rose, but GSM8K dev stayed at 89.4–91.8. Stopped at step 69. Final checks: GSM8K test 90.2 (original checkpoint 90.4); MATH strict +9.6 but MATH acc unchanged. Pod deleted.
 
 ## Reproduce
 
